@@ -82,7 +82,7 @@ async def extract_audio(request: VideoURLRequest):
     output_dir.mkdir(exist_ok=True)
     output_path = output_dir / f"audio_{unique_id}"
 
-    # yt-dlp options
+    # yt-dlp options with headers to avoid bot detection
     ydl_opts = {
         'format': 'bestaudio/best',
         'postprocessors': [{
@@ -93,6 +93,13 @@ async def extract_audio(request: VideoURLRequest):
         'outtmpl': str(output_path),
         'quiet': True,
         'no_warnings': True,
+        # Add headers to appear as a real browser
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-us,en;q=0.5',
+            'Sec-Fetch-Mode': 'navigate',
+        }
     }
 
     # Only set ffmpeg_location if it exists (for local Windows development)
