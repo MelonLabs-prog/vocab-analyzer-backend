@@ -13,7 +13,11 @@ import os
 from pathlib import Path
 import uuid
 import yt_dlp
-from deepgram import DeepgramClient, PrerecordedOptions
+from deepgram import (
+    DeepgramClient,
+    PrerecordedOptions,
+    FileSource,
+)
 import google.generativeai as genai
 import json
 
@@ -153,34 +157,39 @@ async def extract_audio(request: VideoURLRequest):
             print("Transcribing audio with Deepgram...")
             deepgram = DeepgramClient(deepgram_api_key)
 
-            with open(audio_file, "rb") as audio:
-                source = {"buffer": audio, "mimetype": "audio/mpeg"}
-                options = PrerecordedOptions(
-                    model="nova-2",
-                    smart_format=True,
-                    language="en",
-                )
+            with open(audio_file, "rb") as file:
+                buffer_data = file.read()
 
-                response = deepgram.listen.prerecorded.v("1").transcribe_file(source, options)
+            payload: FileSource = {
+                "buffer": buffer_data,
+            }
 
-                transcript = response["results"]["channels"][0]["alternatives"][0]["transcript"]
+            options = PrerecordedOptions(
+                model="nova-2",
+                smart_format=True,
+                language="en",
+            )
 
-                if not transcript:
-                    raise HTTPException(status_code=500, detail="No transcription returned")
+            response = deepgram.listen.rest.v("1").transcribe_file(payload, options)
 
-                print(f"Transcription successful: {len(transcript)} characters")
+            transcript = response["results"]["channels"][0]["alternatives"][0]["transcript"]
 
-                # Clean up audio file
-                try:
-                    os.remove(audio_file)
-                    print(f"Cleaned up audio file: {audio_file}")
-                except Exception as cleanup_error:
-                    print(f"Warning: Could not delete audio file: {cleanup_error}")
+            if not transcript:
+                raise HTTPException(status_code=500, detail="No transcription returned")
 
-                return ExtractionResponse(
-                    message="Audio extracted and transcribed successfully",
-                    transcription=transcript.strip()
-                )
+            print(f"Transcription successful: {len(transcript)} characters")
+
+            # Clean up audio file
+            try:
+                os.remove(audio_file)
+                print(f"Cleaned up audio file: {audio_file}")
+            except Exception as cleanup_error:
+                print(f"Warning: Could not delete audio file: {cleanup_error}")
+
+            return ExtractionResponse(
+                message="Audio extracted and transcribed successfully",
+                transcription=transcript.strip()
+            )
 
         except Exception as transcription_error:
             print(f"Error transcribing audio: {str(transcription_error)}")
@@ -229,14 +238,17 @@ async def transcribe_uploaded_file(file: UploadFile = File(...)):
         # Read file contents
         file_contents = await file.read()
 
-        source = {"buffer": file_contents, "mimetype": file.content_type or "audio/mpeg"}
+        payload: FileSource = {
+            "buffer": file_contents,
+        }
+
         options = PrerecordedOptions(
             model="nova-2",
             smart_format=True,
             language="en",
         )
 
-        response = deepgram.listen.prerecorded.v("1").transcribe_file(source, options)
+        response = deepgram.listen.rest.v("1").transcribe_file(payload, options)
         transcript = response["results"]["channels"][0]["alternatives"][0]["transcript"]
 
         if not transcript:
