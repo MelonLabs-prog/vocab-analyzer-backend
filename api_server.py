@@ -1,9 +1,10 @@
 """
-FastAPI server for video audio extraction
+FastAPI server for video audio extraction and transcription
 Provides API endpoint for React frontend to extract audio from video URLs
+and transcribe using Deepgram
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -11,6 +12,7 @@ import os
 from pathlib import Path
 import uuid
 import yt_dlp
+from deepgram import DeepgramClient, PrerecordedOptions
 
 app = FastAPI(title="Video Audio Extraction API")
 
@@ -39,7 +41,7 @@ class VideoURLRequest(BaseModel):
 
 class ExtractionResponse(BaseModel):
     message: str
-    audio_url: str
+    transcription: str
 
 @app.get("/")
 def read_root():
@@ -56,16 +58,16 @@ def read_root():
 def health_check():
     return {"status": "healthy"}
 
-@app.post("/extract-audio")
+@app.post("/extract-audio", response_model=ExtractionResponse)
 async def extract_audio(request: VideoURLRequest):
     """
-    Extract audio from video URL (YouTube, TikTok, Instagram, etc.)
+    Extract audio from video URL and transcribe using Deepgram
 
     Args:
         request: JSON body with 'url' field
 
     Returns:
-        Audio file in MP3 format
+        JSON with transcription text
     """
     url = request.url.strip()
 
@@ -120,15 +122,52 @@ async def extract_audio(request: VideoURLRequest):
 
         print(f"Audio extracted successfully: {audio_file}")
 
-        # Return the audio file
-        return FileResponse(
-            audio_file,
-            media_type="audio/mpeg",
-            filename=f"audio_{unique_id}.mp3",
-            headers={
-                "Content-Disposition": f"attachment; filename=audio_{unique_id}.mp3"
-            }
-        )
+        # Transcribe using Deepgram
+        deepgram_api_key = os.getenv("DEEPGRAM_API_KEY")
+        if not deepgram_api_key:
+            raise HTTPException(status_code=500, detail="DEEPGRAM_API_KEY not configured")
+
+        try:
+            print("Transcribing audio with Deepgram...")
+            deepgram = DeepgramClient(deepgram_api_key)
+
+            with open(audio_file, "rb") as audio:
+                source = {"buffer": audio, "mimetype": "audio/mpeg"}
+                options = PrerecordedOptions(
+                    model="nova-2",
+                    smart_format=True,
+                    language="en",
+                )
+
+                response = deepgram.listen.prerecorded.v("1").transcribe_file(source, options)
+
+                transcript = response["results"]["channels"][0]["alternatives"][0]["transcript"]
+
+                if not transcript:
+                    raise HTTPException(status_code=500, detail="No transcription returned")
+
+                print(f"Transcription successful: {len(transcript)} characters")
+
+                # Clean up audio file
+                try:
+                    os.remove(audio_file)
+                    print(f"Cleaned up audio file: {audio_file}")
+                except Exception as cleanup_error:
+                    print(f"Warning: Could not delete audio file: {cleanup_error}")
+
+                return ExtractionResponse(
+                    message="Audio extracted and transcribed successfully",
+                    transcription=transcript.strip()
+                )
+
+        except Exception as transcription_error:
+            print(f"Error transcribing audio: {str(transcription_error)}")
+            # Clean up audio file even if transcription fails
+            try:
+                os.remove(audio_file)
+            except:
+                pass
+            raise HTTPException(status_code=500, detail=f"Transcription failed: {str(transcription_error)}")
 
     except yt_dlp.utils.DownloadError as e:
         error_msg = str(e)
@@ -142,6 +181,52 @@ async def extract_audio(request: VideoURLRequest):
     except Exception as e:
         print(f"Error extracting audio: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+@app.post("/transcribe")
+async def transcribe_uploaded_file(file: UploadFile = File(...)):
+    """
+    Transcribe an uploaded audio/video file using Deepgram
+
+    Args:
+        file: Audio/video file upload
+
+    Returns:
+        JSON with transcription text
+    """
+    if not file:
+        raise HTTPException(status_code=400, detail="No file provided")
+
+    deepgram_api_key = os.getenv("DEEPGRAM_API_KEY")
+    if not deepgram_api_key:
+        raise HTTPException(status_code=500, detail="DEEPGRAM_API_KEY not configured")
+
+    try:
+        print(f"Transcribing uploaded file: {file.filename} with Deepgram...")
+        deepgram = DeepgramClient(deepgram_api_key)
+
+        # Read file contents
+        file_contents = await file.read()
+
+        source = {"buffer": file_contents, "mimetype": file.content_type or "audio/mpeg"}
+        options = PrerecordedOptions(
+            model="nova-2",
+            smart_format=True,
+            language="en",
+        )
+
+        response = deepgram.listen.prerecorded.v("1").transcribe_file(source, options)
+        transcript = response["results"]["channels"][0]["alternatives"][0]["transcript"]
+
+        if not transcript:
+            raise HTTPException(status_code=500, detail="No transcription returned")
+
+        print(f"Transcription successful: {len(transcript)} characters")
+
+        return {"transcription": transcript.strip()}
+
+    except Exception as e:
+        print(f"Error transcribing file: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
 
 @app.delete("/cleanup/{filename}")
 async def cleanup_audio(filename: str):

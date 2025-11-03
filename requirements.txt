@@ -3,3 +3,4 @@ yt-dlp>=2023.12.30
 fastapi>=0.109.0
 uvicorn>=0.27.0
 python-dotenv>=1.0.0
+deepgram-sdk>=3.0.0
