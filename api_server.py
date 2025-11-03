@@ -8,11 +8,14 @@ from fastapi import FastAPI, HTTPException, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from typing import Dict, List, Any
 import os
 from pathlib import Path
 import uuid
 import yt_dlp
 from deepgram import DeepgramClient, PrerecordedOptions
+import google.generativeai as genai
+import json
 
 app = FastAPI(title="Video Audio Extraction API")
 
@@ -42,6 +45,25 @@ class VideoURLRequest(BaseModel):
 class ExtractionResponse(BaseModel):
     message: str
     transcription: str
+
+class AnalyzeRequest(BaseModel):
+    content: str
+
+class GrammarItem(BaseModel):
+    sentence: str
+    grammarPoint: str
+    explanation: str
+
+class AnalysisResult(BaseModel):
+    vocabulary: Dict[str, List[str]]
+    grammarAnalysis: Dict[str, List[GrammarItem]]
+
+class WordDetailsRequest(BaseModel):
+    word: str
+
+class WordDetailsResponse(BaseModel):
+    definition: str
+    example: str
 
 @app.get("/")
 def read_root():
@@ -227,6 +249,236 @@ async def transcribe_uploaded_file(file: UploadFile = File(...)):
     except Exception as e:
         print(f"Error transcribing file: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
+
+@app.post("/analyze", response_model=AnalysisResult)
+async def analyze_content(request: AnalyzeRequest):
+    """
+    Analyze text content for vocabulary and grammar using Gemini
+
+    Args:
+        request: JSON body with 'content' field (text or URL)
+
+    Returns:
+        JSON with vocabulary and grammar analysis by CEFR levels
+    """
+    gemini_api_key = os.getenv("GEMINI_API_KEY")
+    if not gemini_api_key:
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured")
+
+    content = request.content.strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="Content is required")
+
+    # Check if it's a URL
+    is_url = content.startswith('http://') or content.startswith('https://')
+
+    try:
+        genai.configure(api_key=gemini_api_key)
+        model = genai.GenerativeModel('gemini-2.5-flash')
+
+        if is_url:
+            # For URLs, use Google Search tool and request clean JSON
+            prompt = f"""Analyze the content found at the following URL to identify unique vocabulary and grammar structures. Group them by their Common European Framework of Reference for Languages (CEFR) levels from A1 to C2.
+If it's an article, use the main text content.
+
+Your response MUST be a valid JSON object that adheres to the following structure. Do not include any text, explanations, or markdown formatting before or after the JSON object.
+
+JSON Structure:
+{{
+  "vocabulary": {{
+    "A1": ["word1", "word2"],
+    "A2": [], "B1": [], "B2": [], "C1": [], "C2": []
+  }},
+  "grammarAnalysis": {{
+    "A1": [{{"sentence": "Example sentence from the text.", "grammarPoint": "The grammar point name.", "explanation": "Explanation of the grammar point."}}],
+    "A2": [], "B1": [], "B2": [], "C1": [], "C2": []
+  }}
+}}
+
+For vocabulary, provide a list of unique words for each level. Do not include duplicates.
+For grammar, provide example sentences from the text, identify the grammatical concept, and give a brief explanation for each, grouped by CEFR level. If no items are found for a level, return an empty array.
+
+URL to analyze:
+---
+{content}"""
+
+            generation_config = {
+                "temperature": 0.2,
+            }
+
+            response = model.generate_content(
+                prompt,
+                generation_config=generation_config,
+                tools='google_search_retrieval'
+            )
+
+            json_text = response.text.strip()
+
+            # Clean up potential markdown code block formatting
+            if json_text.startswith('```json'):
+                json_text = json_text[7:-3].strip()
+            elif json_text.startswith('```'):
+                json_text = json_text[3:-3].strip()
+
+        else:
+            # For text, use structured output with schema
+            prompt = f"""Analyze the following text to identify unique vocabulary and grammar structures. Group them by their Common European Framework of Reference for Languages (CEFR) levels from A1 to C2.
+For vocabulary, provide a list of unique words for each level. Do not include duplicates.
+For grammar, provide example sentences from the text, identify the grammatical concept, and give a brief explanation for each, grouped by CEFR level.
+Provide the output in a JSON format that adheres to the provided schema. Do not include words or grammar points if they do not fit into any CEFR level.
+
+Text to analyze:
+---
+{content}"""
+
+            generation_config = {
+                "temperature": 0.2,
+                "response_mime_type": "application/json",
+                "response_schema": {
+                    "type": "object",
+                    "properties": {
+                        "vocabulary": {
+                            "type": "object",
+                            "description": "A dictionary of vocabulary words grouped by CEFR level.",
+                            "properties": {
+                                "A1": {"type": "array", "items": {"type": "string"}},
+                                "A2": {"type": "array", "items": {"type": "string"}},
+                                "B1": {"type": "array", "items": {"type": "string"}},
+                                "B2": {"type": "array", "items": {"type": "string"}},
+                                "C1": {"type": "array", "items": {"type": "string"}},
+                                "C2": {"type": "array", "items": {"type": "string"}},
+                            }
+                        },
+                        "grammarAnalysis": {
+                            "type": "object",
+                            "description": "Grammar points found in the text, grouped by CEFR level.",
+                            "properties": {
+                                "A1": {"type": "array", "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "sentence": {"type": "string"},
+                                        "grammarPoint": {"type": "string"},
+                                        "explanation": {"type": "string"}
+                                    }
+                                }},
+                                "A2": {"type": "array", "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "sentence": {"type": "string"},
+                                        "grammarPoint": {"type": "string"},
+                                        "explanation": {"type": "string"}
+                                    }
+                                }},
+                                "B1": {"type": "array", "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "sentence": {"type": "string"},
+                                        "grammarPoint": {"type": "string"},
+                                        "explanation": {"type": "string"}
+                                    }
+                                }},
+                                "B2": {"type": "array", "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "sentence": {"type": "string"},
+                                        "grammarPoint": {"type": "string"},
+                                        "explanation": {"type": "string"}
+                                    }
+                                }},
+                                "C1": {"type": "array", "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "sentence": {"type": "string"},
+                                        "grammarPoint": {"type": "string"},
+                                        "explanation": {"type": "string"}
+                                    }
+                                }},
+                                "C2": {"type": "array", "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "sentence": {"type": "string"},
+                                        "grammarPoint": {"type": "string"},
+                                        "explanation": {"type": "string"}
+                                    }
+                                }},
+                            }
+                        }
+                    },
+                    "required": ["vocabulary", "grammarAnalysis"]
+                }
+            }
+
+            response = model.generate_content(
+                prompt,
+                generation_config=generation_config
+            )
+
+            json_text = response.text.strip()
+
+        # Parse and return
+        result = json.loads(json_text)
+        print(f"Analysis successful for content length: {len(content)}")
+        return result
+
+    except json.JSONDecodeError as e:
+        print(f"JSON parsing error: {str(e)}")
+        raise HTTPException(status_code=500, detail="AI returned invalid response format. Please try again.")
+    except Exception as e:
+        print(f"Error analyzing content: {str(e)}")
+        if is_url:
+            raise HTTPException(status_code=500, detail="Failed to analyze URL. The URL may be inaccessible or content not analyzable.")
+        raise HTTPException(status_code=500, detail="Failed to analyze content. It might be too long or format is invalid.")
+
+@app.post("/word-details", response_model=WordDetailsResponse)
+async def get_word_details(request: WordDetailsRequest):
+    """
+    Get definition and example for a word using Gemini
+
+    Args:
+        request: JSON body with 'word' field
+
+    Returns:
+        JSON with definition and example
+    """
+    gemini_api_key = os.getenv("GEMINI_API_KEY")
+    if not gemini_api_key:
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured")
+
+    word = request.word.strip()
+    if not word:
+        raise HTTPException(status_code=400, detail="Word is required")
+
+    try:
+        genai.configure(api_key=gemini_api_key)
+        model = genai.GenerativeModel('gemini-2.5-flash')
+
+        prompt = f'Provide a clear definition and an example sentence for the English word: "{word}". Your response should be a JSON object adhering to the specified schema. Do not include any markdown formatting or other text outside of the JSON object.'
+
+        generation_config = {
+            "temperature": 0.2,
+            "response_mime_type": "application/json",
+            "response_schema": {
+                "type": "object",
+                "properties": {
+                    "definition": {"type": "string"},
+                    "example": {"type": "string"}
+                },
+                "required": ["definition", "example"]
+            }
+        }
+
+        response = model.generate_content(
+            prompt,
+            generation_config=generation_config
+        )
+
+        result = json.loads(response.text.strip())
+        print(f"Word details fetched for: {word}")
+        return result
+
+    except Exception as e:
+        print(f"Error fetching word details for '{word}': {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get details for '{word}'. Please try again.")
 
 @app.delete("/cleanup/{filename}")
 async def cleanup_audio(filename: str):
