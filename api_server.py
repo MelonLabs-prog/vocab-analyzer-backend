@@ -334,7 +334,7 @@ URL to analyze:
             response = model.generate_content(
                 prompt,
                 generation_config=generation_config,
-                tools='google_search_retrieval'
+                tools='google_search'
             )
 
             json_text = response.text.strip()
