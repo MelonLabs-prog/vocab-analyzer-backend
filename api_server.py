@@ -297,12 +297,66 @@ async def analyze_content(request: AnalyzeRequest):
     # Check if it's a URL
     is_url = content.startswith('http://') or content.startswith('https://')
 
+    # Check if it's a word list (many single words with minimal other text)
+    words = [w.strip() for w in content.replace(',', '\n').split('\n') if w.strip()]
+    avg_word_length = sum(len(w.split()) for w in words) / len(words) if words else 0
+    is_word_list = len(words) > 20 and avg_word_length < 2.0  # If many lines with 1-2 words each
+
+    if is_word_list:
+        print(f"Detected word list with {len(words)} words")
+
     try:
         genai.configure(api_key=gemini_api_key)
         model = genai.GenerativeModel('gemini-2.5-flash')
 
+        # If word list, use special prompt for classification
+        if is_word_list:
+            word_list = '\n'.join(words)
+            prompt = f"""You are given a list of English words. Classify each word according to its CEFR (Common European Framework of Reference for Languages) level from A1 to C2.
+
+For each word, determine its appropriate CEFR level based on:
+- Frequency of use in everyday English
+- Complexity and abstractness
+- Typical learning progression
+
+Provide the output as a JSON object with words grouped by CEFR level. Include ALL words from the list.
+
+Word list to classify:
+---
+{word_list}
+
+Return ONLY the JSON object with this structure (no markdown formatting):
+{{
+  "vocabulary": {{
+    "A1": ["word1", "word2", ...],
+    "A2": [...],
+    "B1": [...],
+    "B2": [...],
+    "C1": [...],
+    "C2": [...]
+  }},
+  "grammarAnalysis": {{
+    "A1": [], "A2": [], "B1": [], "B2": [], "C1": [], "C2": []
+  }}
+}}"""
+
+            generation_config = {
+                "temperature": 0.2,
+                "response_mime_type": "application/json",
+            }
+
+            response = model.generate_content(
+                prompt,
+                generation_config=generation_config
+            )
+
+            json_text = response.text.strip()
+            result = json.loads(json_text)
+            print(f"Classified {len(words)} words into CEFR levels")
+            return result
+
         # If URL, fetch content first and treat as text
-        if is_url:
+        elif is_url:
             try:
                 async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
                     url_response = await client.get(content)
