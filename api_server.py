@@ -301,53 +301,43 @@ async def analyze_content(request: AnalyzeRequest):
         genai.configure(api_key=gemini_api_key)
         model = genai.GenerativeModel('gemini-2.5-flash')
 
+        # If URL, fetch content first and treat as text
         if is_url:
-            # For URLs, use Google Search tool and request clean JSON
-            prompt = f"""Analyze the content found at the following URL to identify unique vocabulary and grammar structures. Group them by their Common European Framework of Reference for Languages (CEFR) levels from A1 to C2.
-If it's an article, use the main text content.
+            try:
+                async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+                    url_response = await client.get(content)
+                    url_response.raise_for_status()
+                    url_content = url_response.text
 
-Your response MUST be a valid JSON object that adheres to the following structure. Do not include any text, explanations, or markdown formatting before or after the JSON object.
+                    # Extract text from HTML
+                    from html.parser import HTMLParser
 
-JSON Structure:
-{{
-  "vocabulary": {{
-    "A1": ["word1", "word2"],
-    "A2": [], "B1": [], "B2": [], "C1": [], "C2": []
-  }},
-  "grammarAnalysis": {{
-    "A1": [{{"sentence": "Example sentence from the text.", "grammarPoint": "The grammar point name.", "explanation": "Explanation of the grammar point."}}],
-    "A2": [], "B1": [], "B2": [], "C1": [], "C2": []
-  }}
-}}
+                    class TextExtractor(HTMLParser):
+                        def __init__(self):
+                            super().__init__()
+                            self.text = []
 
-For vocabulary, provide a list of unique words for each level. Do not include duplicates.
-For grammar, provide example sentences from the text, identify the grammatical concept, and give a brief explanation for each, grouped by CEFR level. If no items are found for a level, return an empty array.
+                        def handle_data(self, data):
+                            if data.strip():
+                                self.text.append(data.strip())
 
-URL to analyze:
----
-{content}"""
+                    extractor = TextExtractor()
+                    extractor.feed(url_content)
+                    extracted_text = ' '.join(extractor.text)
 
-            generation_config = {
-                "temperature": 0.2,
-            }
+                    # Limit to avoid token limits
+                    if len(extracted_text) > 10000:
+                        extracted_text = extracted_text[:10000]
 
-            response = model.generate_content(
-                prompt,
-                generation_config=generation_config,
-                tools='google_search'
-            )
+                    content = extracted_text
+                    is_url = False  # Treat as text from now on
 
-            json_text = response.text.strip()
+            except Exception as url_error:
+                print(f"Error fetching URL: {str(url_error)}")
+                raise HTTPException(status_code=500, detail=f"Failed to fetch URL content: {str(url_error)}")
 
-            # Clean up potential markdown code block formatting
-            if json_text.startswith('```json'):
-                json_text = json_text[7:-3].strip()
-            elif json_text.startswith('```'):
-                json_text = json_text[3:-3].strip()
-
-        else:
-            # For text, use structured output with schema
-            prompt = f"""Analyze the following text to identify unique vocabulary and grammar structures. Group them by their Common European Framework of Reference for Languages (CEFR) levels from A1 to C2.
+        # Analyze content as text (works for both plain text and extracted URL content)
+        prompt = f"""Analyze the following text to identify unique vocabulary and grammar structures. Group them by their Common European Framework of Reference for Languages (CEFR) levels from A1 to C2.
 For vocabulary, provide a list of unique words for each level. Do not include duplicates.
 For grammar, provide example sentences from the text, identify the grammatical concept, and give a brief explanation for each, grouped by CEFR level.
 Provide the output in a JSON format that adheres to the provided schema. Do not include words or grammar points if they do not fit into any CEFR level.
@@ -356,10 +346,10 @@ Text to analyze:
 ---
 {content}"""
 
-            generation_config = {
-                "temperature": 0.2,
-                "response_mime_type": "application/json",
-                "response_schema": {
+        generation_config = {
+            "temperature": 0.2,
+            "response_mime_type": "application/json",
+            "response_schema": {
                     "type": "object",
                     "properties": {
                         "vocabulary": {
@@ -431,14 +421,14 @@ Text to analyze:
                     },
                     "required": ["vocabulary", "grammarAnalysis"]
                 }
-            }
+        }
 
-            response = model.generate_content(
-                prompt,
-                generation_config=generation_config
-            )
+        response = model.generate_content(
+            prompt,
+            generation_config=generation_config
+        )
 
-            json_text = response.text.strip()
+        json_text = response.text.strip()
 
         # Parse and return
         result = json.loads(json_text)
