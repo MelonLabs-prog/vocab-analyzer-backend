@@ -151,7 +151,7 @@ async def extract_audio(request: VideoURLRequest):
 
         try:
             print("Transcribing audio with Deepgram...")
-            deepgram = DeepgramClient(deepgram_api_key)
+            deepgram = DeepgramClient(api_key=deepgram_api_key)
 
             with open(audio_file, "rb") as file:
                 buffer_data = file.read()
@@ -228,7 +228,7 @@ async def transcribe_uploaded_file(file: UploadFile = File(...)):
 
     try:
         print(f"Transcribing uploaded file: {file.filename} with Deepgram...")
-        deepgram = DeepgramClient(deepgram_api_key)
+        deepgram = DeepgramClient(api_key=deepgram_api_key)
 
         # Read file contents
         file_contents = await file.read()
