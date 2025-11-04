@@ -162,7 +162,7 @@ async def extract_audio(request: VideoURLRequest):
                 "language": "en",
             }
 
-            response = deepgram.listen.prerecorded.v("1").transcribe_file(
+            response = deepgram.listen.rest.v("1").transcribe_file(
                 {"buffer": buffer_data},
                 options
             )
@@ -239,7 +239,7 @@ async def transcribe_uploaded_file(file: UploadFile = File(...)):
             "language": "en",
         }
 
-        response = deepgram.listen.prerecorded.v("1").transcribe_file(
+        response = deepgram.listen.rest.v("1").transcribe_file(
             {"buffer": file_contents},
             options
         )
