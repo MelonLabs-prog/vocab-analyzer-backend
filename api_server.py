@@ -156,16 +156,14 @@ async def extract_audio(request: VideoURLRequest):
             with open(audio_file, "rb") as file:
                 buffer_data = file.read()
 
+            source = {"buffer": buffer_data}
             options = {
                 "model": "nova-2",
                 "smart_format": True,
                 "language": "en",
             }
 
-            response = deepgram.listen.rest.v("1").transcribe_file(
-                {"buffer": buffer_data},
-                options
-            )
+            response = deepgram.listen.prerecorded.transcribe_file(source, options)
 
             transcript = response["results"]["channels"][0]["alternatives"][0]["transcript"]
 
@@ -233,16 +231,14 @@ async def transcribe_uploaded_file(file: UploadFile = File(...)):
         # Read file contents
         file_contents = await file.read()
 
+        source = {"buffer": file_contents}
         options = {
             "model": "nova-2",
             "smart_format": True,
             "language": "en",
         }
 
-        response = deepgram.listen.rest.v("1").transcribe_file(
-            {"buffer": file_contents},
-            options
-        )
+        response = deepgram.listen.prerecorded.transcribe_file(source, options)
         transcript = response["results"]["channels"][0]["alternatives"][0]["transcript"]
 
         if not transcript:
