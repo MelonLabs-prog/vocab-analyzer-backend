@@ -325,10 +325,12 @@ async def analyze_content(request: AnalyzeRequest):
                     extractor.feed(url_content)
                     extracted_text = ' '.join(extractor.text)
 
-                    # Limit to avoid token limits
-                    if len(extracted_text) > 10000:
-                        extracted_text = extracted_text[:10000]
+                    # Limit to avoid token limits (Gemini 2.5 Flash supports up to 1M tokens)
+                    # 100K characters is roughly 25K tokens, well within limits
+                    if len(extracted_text) > 100000:
+                        extracted_text = extracted_text[:100000]
 
+                    print(f"Extracted {len(extracted_text)} characters from URL")
                     content = extracted_text
                     is_url = False  # Treat as text from now on
 
