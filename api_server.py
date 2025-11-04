@@ -13,7 +13,7 @@ import os
 from pathlib import Path
 import uuid
 import yt_dlp
-from deepgram import DeepgramClient
+import httpx
 import google.generativeai as genai
 import json
 
@@ -150,18 +150,33 @@ async def extract_audio(request: VideoURLRequest):
             raise HTTPException(status_code=500, detail="DEEPGRAM_API_KEY not configured")
 
         try:
-            print("Transcribing audio with Deepgram...")
-            deepgram = DeepgramClient(api_key=deepgram_api_key)
+            print("Transcribing audio with Deepgram REST API...")
 
             with open(audio_file, "rb") as file:
                 audio_data = file.read()
 
-            response = deepgram.listen.rest.v("1").transcribe_file(
-                {"buffer": audio_data},
-                {"model": "nova-2", "smart_format": True, "language": "en"}
-            )
+            # Use Deepgram REST API directly
+            headers = {
+                "Authorization": f"Token {deepgram_api_key}",
+                "Content-Type": "audio/mpeg"
+            }
+            params = {
+                "model": "nova-2",
+                "smart_format": "true",
+                "language": "en"
+            }
 
-            transcript = response.results.channels[0].alternatives[0].transcript
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(
+                    "https://api.deepgram.com/v1/listen",
+                    headers=headers,
+                    params=params,
+                    content=audio_data
+                )
+                response.raise_for_status()
+                result = response.json()
+
+            transcript = result["results"]["channels"][0]["alternatives"][0]["transcript"]
 
             if not transcript:
                 raise HTTPException(status_code=500, detail="No transcription returned")
@@ -221,18 +236,33 @@ async def transcribe_uploaded_file(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail="DEEPGRAM_API_KEY not configured")
 
     try:
-        print(f"Transcribing uploaded file: {file.filename} with Deepgram...")
-        deepgram = DeepgramClient(api_key=deepgram_api_key)
+        print(f"Transcribing uploaded file: {file.filename} with Deepgram REST API...")
 
         # Read file contents
         file_contents = await file.read()
 
-        response = deepgram.listen.rest.v("1").transcribe_file(
-            {"buffer": file_contents},
-            {"model": "nova-2", "smart_format": True, "language": "en"}
-        )
+        # Use Deepgram REST API directly
+        headers = {
+            "Authorization": f"Token {deepgram_api_key}",
+            "Content-Type": file.content_type or "audio/mpeg"
+        }
+        params = {
+            "model": "nova-2",
+            "smart_format": "true",
+            "language": "en"
+        }
 
-        transcript = response.results.channels[0].alternatives[0].transcript
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                "https://api.deepgram.com/v1/listen",
+                headers=headers,
+                params=params,
+                content=file_contents
+            )
+            response.raise_for_status()
+            result = response.json()
+
+        transcript = result["results"]["channels"][0]["alternatives"][0]["transcript"]
 
         if not transcript:
             raise HTTPException(status_code=500, detail="No transcription returned")
