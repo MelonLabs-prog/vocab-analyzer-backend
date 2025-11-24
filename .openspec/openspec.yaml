@@ -1,0 +1,324 @@
+name: AI Language Analyzer Backend
+version: 1.0.0
+type: backend-api
+framework: FastAPI
+
+overview: |
+  Backend API for AI Language Analyzer - a tool that extracts vocabulary and grammar
+  from various sources (YouTube videos, articles, text, audio files) and classifies
+  them by CEFR levels (A1-C2).
+
+deployment:
+  platform: Railway
+  url: https://vocab-api-production.up.railway.app
+  runtime: Python 3.11
+  containerization: Docker
+  auto_deploy: true
+  repository: https://github.com/MelonLabs-prog/vocab-analyzer-backend
+
+environment:
+  required:
+    - name: GEMINI_API_KEY
+      description: Google Gemini API key for text analysis and CEFR classification
+      source: https://aistudio.google.com/apikey
+
+    - name: DEEPGRAM_API_KEY
+      description: Deepgram API key for speech-to-text transcription
+      source: https://console.deepgram.com/signup
+
+    - name: PORT
+      description: Port for the server (set by Railway)
+      default: 8080
+
+  optional:
+    - name: ALLOWED_ORIGINS
+      description: CORS allowed origins (comma-separated)
+      default: "*"
+
+    - name: FFMPEG_PATH
+      description: Path to FFmpeg binary (auto-detected in Docker)
+      default: /usr/bin/ffmpeg
+
+dependencies:
+  python:
+    - yt-dlp>=2023.12.30  # Video/audio download
+    - fastapi>=0.109.0  # Web framework
+    - uvicorn>=0.27.0  # ASGI server
+    - python-dotenv>=1.0.0  # Environment variables
+    - deepgram-sdk>=3.0.0  # Speech-to-text (not used directly - using REST API)
+    - google-generativeai>=0.8.0  # Gemini API
+    - python-multipart>=0.0.6  # File upload support
+    - httpx>=0.27.0  # HTTP client for external requests
+
+  system:
+    - ffmpeg  # Audio/video processing
+
+architecture:
+  pattern: REST API
+
+  flow: |
+    Client Request → FastAPI → External APIs (Deepgram/Gemini) → Response
+
+  external_services:
+    - name: Deepgram
+      purpose: Audio transcription using REST API
+      endpoint: https://api.deepgram.com/v1/listen
+
+    - name: Google Gemini
+      purpose: Text analysis and CEFR classification
+      model: gemini-2.5-flash
+
+components:
+  - name: api_server.py
+    type: main
+    description: FastAPI application with all endpoints
+    responsibilities:
+      - YouTube audio extraction
+      - Audio transcription via Deepgram
+      - Text analysis via Gemini
+      - URL content fetching
+      - Word definition lookup
+
+  - name: start.py
+    type: entry_point
+    description: Railway deployment entry point that handles PORT env var
+
+  - name: Dockerfile
+    type: infrastructure
+    description: Container configuration with FFmpeg installation
+
+  - name: requirements.txt
+    type: configuration
+    description: Python package dependencies
+
+endpoints:
+  - path: /
+    method: GET
+    description: Health check and service info
+    returns: Service metadata
+
+  - path: /health
+    method: GET
+    description: Health check endpoint
+    returns: Status object
+
+  - path: /extract-audio
+    method: POST
+    description: Download YouTube video audio and transcribe
+    input:
+      type: JSON
+      schema:
+        url: string (YouTube/TikTok/Instagram URL)
+    process:
+      - Download audio using yt-dlp
+      - Convert to MP3 with FFmpeg
+      - Transcribe using Deepgram REST API
+      - Clean up temp file
+    returns:
+      message: string
+      transcription: string
+    error_handling:
+      - 400: Invalid URL format
+      - 404: Video not found/unavailable
+      - 403: Private video
+      - 500: Download/transcription failed
+
+  - path: /transcribe
+    method: POST
+    description: Transcribe uploaded audio/video file
+    input:
+      type: multipart/form-data
+      field: file (audio/video file)
+    process:
+      - Read file contents
+      - Send to Deepgram REST API
+      - Return transcription
+    returns:
+      transcription: string
+    error_handling:
+      - 400: No file provided
+      - 500: Transcription failed
+
+  - path: /analyze
+    method: POST
+    description: Analyze text/URL/word-list for CEFR vocabulary and grammar
+    input:
+      type: JSON
+      schema:
+        content: string (text, URL, or word list)
+    process:
+      - Detect content type (URL, word list, or text)
+      - For URLs: Fetch HTML → Extract text (HTMLParser) → Analyze
+      - For word lists: Detect many single words → Classify each word
+      - For text: Direct analysis
+      - Send to Gemini with appropriate prompt
+      - Parse structured JSON response
+    returns:
+      vocabulary:
+        A1: array of strings
+        A2: array of strings
+        B1: array of strings
+        B2: array of strings
+        C1: array of strings
+        C2: array of strings
+      grammarAnalysis:
+        A1: array of objects (sentence, grammarPoint, explanation)
+        A2: array of objects
+        B1: array of objects
+        B2: array of objects
+        C1: array of objects
+        C2: array of objects
+    content_detection:
+      url: Starts with http:// or https://
+      word_list: >20 lines with avg 1-2 words per line
+      text: Everything else
+    limits:
+      url_text_extraction: 100,000 characters
+    error_handling:
+      - 400: Empty content
+      - 500: URL fetch failed, JSON parsing error, Gemini API error
+
+  - path: /word-details
+    method: POST
+    description: Get definition and example sentence for a word
+    input:
+      type: JSON
+      schema:
+        word: string
+    process:
+      - Send word to Gemini
+      - Request definition and example sentence
+      - Return structured response
+    returns:
+      definition: string
+      example: string
+    error_handling:
+      - 400: Empty word
+      - 500: Gemini API error
+
+common_patterns:
+  error_handling: |
+    All endpoints follow this pattern:
+    1. Validate input (raise HTTPException 400 if invalid)
+    2. Check API keys (raise HTTPException 500 if missing)
+    3. Try-except around operations
+    4. Log errors with print()
+    5. Raise HTTPException with appropriate status code
+
+  cors: |
+    CORS middleware configured with:
+    - Origins from ALLOWED_ORIGINS env var
+    - Credentials allowed
+    - All methods allowed
+    - All headers allowed
+
+  api_calls:
+    deepgram: |
+      Use httpx.AsyncClient to POST to https://api.deepgram.com/v1/listen
+      Headers: Authorization: Token {api_key}
+      Body: Audio file bytes
+      Params: model=nova-2, smart_format=true, language=en
+
+    gemini: |
+      Use google.generativeai SDK
+      Model: gemini-2.5-flash
+      For structured output: Use response_mime_type="application/json" + response_schema
+      For word lists: Use special classification prompt
+      Temperature: 0.2 for consistency
+
+development_tasks:
+  adding_input_type:
+    location: Not needed - /analyze handles any text
+    steps:
+      - Frontend extracts text from new format
+      - Sends text to /analyze endpoint
+      - Backend automatically processes it
+
+  adding_analysis_feature:
+    location: api_server.py /analyze endpoint
+    steps:
+      - Update Gemini prompt to request new analysis
+      - Modify response_schema to include new fields
+      - Update AnalysisResult Pydantic model
+      - Frontend will need type updates
+
+  changing_cefr_logic:
+    location: api_server.py /analyze prompts
+    steps:
+      - Modify TEXT_PROMPT for text analysis
+      - Modify word list classification prompt
+      - Adjust instructions for Gemini
+
+  adding_rate_limiting:
+    steps:
+      - Add slowapi to requirements.txt
+      - Import in api_server.py
+      - Add @limiter.limit decorators to endpoints
+
+  improving_text_extraction:
+    location: api_server.py URL handling in /analyze
+    current: HTMLParser extracts all text
+    improvement:
+      - Add beautifulsoup4 to requirements.txt
+      - Replace HTMLParser with BeautifulSoup
+      - Use .get_text() or select specific elements
+
+troubleshooting:
+  youtube_download_fails:
+    symptoms:
+      - 500 error from /extract-audio
+      - "Sign in to confirm you're not a bot"
+    solutions:
+      - Update yt-dlp version
+      - Check Railway logs for specific error
+      - Verify URL format
+      - Check yt-dlp headers are set correctly
+
+  transcription_fails:
+    symptoms:
+      - 500 error with "Transcription failed"
+    solutions:
+      - Verify DEEPGRAM_API_KEY is set
+      - Check Deepgram account credits
+      - Check audio file size (<50MB)
+      - Verify Deepgram API endpoint is correct
+
+  analysis_slow:
+    symptoms:
+      - /analyze takes >30 seconds
+    solutions:
+      - Check content length (limit to 100K chars)
+      - Verify Gemini API key is valid
+      - Check Railway memory usage
+      - Consider caching repeated requests
+
+  cors_errors:
+    symptoms:
+      - Frontend can't connect to API
+      - CORS policy errors in browser
+    solutions:
+      - Check ALLOWED_ORIGINS includes frontend URL
+      - Use "*" for development
+      - Verify middleware is configured
+
+frontend_integration:
+  repository: https://github.com/MelonLabs-prog/Demo-Vocab-Analyzer
+  deployment: Vercel
+  api_calls:
+    base_url: import.meta.env.VITE_API_URL || 'http://localhost:8000'
+    headers:
+      Content-Type: application/json (for JSON)
+      multipart/form-data (for file uploads)
+    error_handling: |
+      Check response.ok
+      Parse error from response.json().detail
+      Display to user
+
+notes:
+  - All API keys stored on backend only (never exposed to browser)
+  - Temp audio files cleaned after transcription
+  - Deepgram SDK installed but using REST API directly (more reliable)
+  - Gemini 2.5 Flash chosen for cost and speed
+  - Word list detection: >20 lines with avg <2 words per line
+  - URL text extraction limited to 100K chars (25K tokens)
+  - File uploads use python-multipart for FastAPI

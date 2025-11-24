@@ -206,7 +206,15 @@ async def extract_audio(request: VideoURLRequest):
 
     except yt_dlp.utils.DownloadError as e:
         error_msg = str(e)
-        if "Video unavailable" in error_msg:
+        # Log full error for debugging
+        print(f"YouTube download error: {error_msg}")
+        
+        if "Sign in to confirm you're not a bot" in error_msg or "HTTP Error 429" in error_msg:
+            raise HTTPException(
+                status_code=429, 
+                detail="YouTube is temporarily preventing automated downloads of this video. This is a common anti-bot measure that YouTube periodically implements. Please try again later or use a different video source. The issue is on YouTube's side and not with our service."
+            )
+        elif "Video unavailable" in error_msg:
             raise HTTPException(status_code=404, detail="Video not found or unavailable")
         elif "Private video" in error_msg:
             raise HTTPException(status_code=403, detail="Video is private")
