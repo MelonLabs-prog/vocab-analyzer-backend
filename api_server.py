@@ -39,6 +39,11 @@ app.add_middleware(
 # For deployment (Railway/Render), FFmpeg is already in PATH
 FFMPEG_PATH = os.getenv("FFMPEG_PATH", r"C:\ffmpeg\ffmpeg-8.0-essentials_build\bin")
 
+# YouTube cookies file path (to bypass bot detection)
+# Export cookies from your browser using a browser extension like "Get cookies.txt LOCALLY"
+# Place the file in the project root or specify a custom path via environment variable
+YOUTUBE_COOKIES_PATH = os.getenv("YOUTUBE_COOKIES_PATH", "youtube_cookies.txt")
+
 class VideoURLRequest(BaseModel):
     url: str
 
@@ -106,7 +111,7 @@ async def extract_audio(request: VideoURLRequest):
     output_dir.mkdir(exist_ok=True)
     output_path = output_dir / f"audio_{unique_id}"
 
-    # yt-dlp options with headers to avoid bot detection
+    # yt-dlp options with headers and cookies to avoid bot detection
     ydl_opts = {
         'format': 'bestaudio/best',
         'postprocessors': [{
@@ -117,14 +122,45 @@ async def extract_audio(request: VideoURLRequest):
         'outtmpl': str(output_path),
         'quiet': True,
         'no_warnings': True,
-        # Add headers to appear as a real browser
+        # Add enhanced headers to appear as a real browser
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-us,en;q=0.5',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
             'Sec-Fetch-Mode': 'navigate',
-        }
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'Cache-Control': 'max-age=0',
+        },
+        # Add rate limiting to avoid triggering bot detection
+        'sleep_interval': 1,
+        'max_sleep_interval': 3,
     }
+
+    # Cookie management for YouTube bot detection bypass
+    # Note: This uses server-side cookies, not user cookies (for security/privacy)
+
+    # Option 1: Use cookie file if available (production deployment)
+    if os.path.exists(YOUTUBE_COOKIES_PATH):
+        ydl_opts['cookiefile'] = YOUTUBE_COOKIES_PATH
+        print(f"Using cookie file: {YOUTUBE_COOKIES_PATH}")
+    # Option 2: Try browser cookies (local development only)
+    elif os.path.exists(os.path.expanduser('~/.config/google-chrome')) or \
+         os.path.exists(os.path.expanduser('~/Library/Application Support/Google/Chrome')) or \
+         os.path.exists(os.path.expanduser(r'~\AppData\Local\Google\Chrome')):
+        try:
+            ydl_opts['cookiesfrombrowser'] = ('chrome',)
+            print("Using cookies from Chrome browser (local development)")
+        except Exception as e:
+            print(f"Could not load cookies from browser: {e}")
+            print("No cookies available - may encounter bot detection for some videos")
+    else:
+        print("No cookies available - may encounter bot detection for some videos")
 
     # Only set ffmpeg_location if it exists (for local Windows development)
     if os.path.exists(FFMPEG_PATH):
@@ -211,8 +247,8 @@ async def extract_audio(request: VideoURLRequest):
         
         if "Sign in to confirm you're not a bot" in error_msg or "HTTP Error 429" in error_msg:
             raise HTTPException(
-                status_code=429, 
-                detail="YouTube is temporarily preventing automated downloads of this video. This is a common anti-bot measure that YouTube periodically implements. Please try again later or use a different video source. The issue is on YouTube's side and not with our service."
+                status_code=429,
+                detail="YouTube is blocking this video download due to bot detection. This happens periodically with YouTube's anti-bot measures.\n\nSuggestions:\n• Try a different YouTube video\n• Wait a few minutes and try again\n• If this persists, the server administrator may need to configure YouTube authentication cookies\n\nNote: This is a YouTube limitation, not an issue with our service."
             )
         elif "Video unavailable" in error_msg:
             raise HTTPException(status_code=404, detail="Video not found or unavailable")

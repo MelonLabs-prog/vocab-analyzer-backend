@@ -206,6 +206,33 @@ Make sure you created `.env` file with your Anthropic API key
 ### "Video download failed"
 Some platforms may block downloads. Try a different video or platform.
 
+### "Sign in to confirm you're not a bot" (YouTube)
+YouTube periodically blocks automated downloads. **Solution: Use browser cookies**
+
+The application now automatically uses cookies from your Chrome browser. To ensure this works:
+
+1. **Make sure you're logged into YouTube in Chrome**
+2. **Keep Chrome installed** (yt-dlp will extract cookies automatically)
+
+**Alternative: Use a cookie file**
+
+If automatic cookie extraction doesn't work, manually export cookies:
+
+1. Install a browser extension:
+   - **Chrome/Edge**: [Get cookies.txt LOCALLY](https://chrome.google.com/webstore/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc)
+   - **Firefox**: [cookies.txt](https://addons.mozilla.org/en-US/firefox/addon/cookies-txt/)
+
+2. While logged into YouTube, click the extension icon and export cookies
+
+3. Save the file as `youtube_cookies.txt` in the project root directory
+
+4. (Optional) Set custom path via environment variable:
+   ```
+   YOUTUBE_COOKIES_PATH=/path/to/your/cookies.txt
+   ```
+
+**Note**: Cookies may expire. If you encounter this error again, repeat the export process.
+
 ## Legal & Privacy
 
 This tool is designed for **educational purposes**:
