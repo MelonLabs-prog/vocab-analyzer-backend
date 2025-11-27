@@ -193,7 +193,9 @@ POST /analyze
       {
         "sentence": "Example sentence",
         "grammarPoint": "Present Simple",
-        "explanation": "Explanation..."
+        "explanation": "In easy words: ...\nPattern: Subject + verb (present simple)\nWhen to use: ...",
+        "highlightedPart": "play football",
+        "structurePattern": "Subject + verb (present simple)"
       }
     ],
     "A2": [...],

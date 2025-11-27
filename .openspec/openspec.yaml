@@ -162,12 +162,12 @@ endpoints:
         C1: array of strings
         C2: array of strings
       grammarAnalysis:
-        A1: array of objects (sentence, grammarPoint, explanation)
-        A2: array of objects
-        B1: array of objects
-        B2: array of objects
-        C1: array of objects
-        C2: array of objects
+        A1: array of objects (sentence, grammarPoint, explanation, highlightedPart?, structurePattern?)
+        A2: array of objects (same shape)
+        B1: array of objects (same shape)
+        B2: array of objects (same shape)
+        C1: array of objects (same shape)
+        C2: array of objects (same shape)
     content_detection:
       url: Starts with http:// or https://
       word_list: >20 lines with avg 1-2 words per line

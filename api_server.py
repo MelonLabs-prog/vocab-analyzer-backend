@@ -8,7 +8,7 @@ from fastapi import FastAPI, HTTPException, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 import os
 from pathlib import Path
 import uuid
@@ -53,6 +53,9 @@ class GrammarItem(BaseModel):
     sentence: str
     grammarPoint: str
     explanation: str
+    # Optional fields to support UI highlighting and guided practice
+    highlightedPart: Optional[str] = None
+    structurePattern: Optional[str] = None
 
 class AnalysisResult(BaseModel):
     vocabulary: Dict[str, List[str]]
@@ -402,9 +405,26 @@ Return ONLY the JSON object with this structure (no markdown formatting):
 
         # Analyze content as text (works for both plain text and extracted URL content)
         prompt = f"""Analyze the following text to identify unique vocabulary and grammar structures. Group them by their Common European Framework of Reference for Languages (CEFR) levels from A1 to C2.
-For vocabulary, provide a list of unique words for each level. Do not include duplicates.
-For grammar, provide example sentences from the text, identify the grammatical concept, and give a brief explanation for each, grouped by CEFR level.
-Provide the output in a JSON format that adheres to the provided schema. Do not include words or grammar points if they do not fit into any CEFR level.
+
+For vocabulary:
+- Provide a list of unique words for each level. Do not include duplicates.
+
+For grammar:
+- For each CEFR level (A1–C2), find important grammar points.
+- For each grammar point, return:
+  - An example sentence from the text.
+  - The grammar point name.
+  - A very simple explanation in A1–B1 English, using this structure exactly:
+    - "In easy words: ..." (1 short sentence, very simple words)
+    - "Pattern: ..." (show the structure like "Subject + am/is/are + verb-ing + object")
+    - "When to use: ..." (1 short sentence about the situation when we use it)
+  - If possible, also return:
+    - "highlightedPart": the exact part of the sentence that shows the grammar (for example: "am learning", "have been studying").
+    - "structurePattern": the abstract pattern with slots (for example: "Subject + am/is/are + verb-ing").
+
+Keep explanations short (maximum 3–4 sentences in total). Use very simple, common vocabulary so A1–B1 learners can understand.
+
+Return ONLY JSON that matches the schema. Do not include any markdown or extra commentary.
 
 Text to analyze:
 ---
@@ -437,48 +457,66 @@ Text to analyze:
                                     "properties": {
                                         "sentence": {"type": "string"},
                                         "grammarPoint": {"type": "string"},
-                                        "explanation": {"type": "string"}
-                                    }
+                                        "explanation": {"type": "string"},
+                                        "highlightedPart": {"type": "string"},
+                                        "structurePattern": {"type": "string"}
+                                    },
+                                    "required": ["sentence", "grammarPoint", "explanation"]
                                 }},
                                 "A2": {"type": "array", "items": {
                                     "type": "object",
                                     "properties": {
                                         "sentence": {"type": "string"},
                                         "grammarPoint": {"type": "string"},
-                                        "explanation": {"type": "string"}
-                                    }
+                                        "explanation": {"type": "string"},
+                                        "highlightedPart": {"type": "string"},
+                                        "structurePattern": {"type": "string"}
+                                    },
+                                    "required": ["sentence", "grammarPoint", "explanation"]
                                 }},
                                 "B1": {"type": "array", "items": {
                                     "type": "object",
                                     "properties": {
                                         "sentence": {"type": "string"},
                                         "grammarPoint": {"type": "string"},
-                                        "explanation": {"type": "string"}
-                                    }
+                                        "explanation": {"type": "string"},
+                                        "highlightedPart": {"type": "string"},
+                                        "structurePattern": {"type": "string"}
+                                    },
+                                    "required": ["sentence", "grammarPoint", "explanation"]
                                 }},
                                 "B2": {"type": "array", "items": {
                                     "type": "object",
                                     "properties": {
                                         "sentence": {"type": "string"},
                                         "grammarPoint": {"type": "string"},
-                                        "explanation": {"type": "string"}
-                                    }
+                                        "explanation": {"type": "string"},
+                                        "highlightedPart": {"type": "string"},
+                                        "structurePattern": {"type": "string"}
+                                    },
+                                    "required": ["sentence", "grammarPoint", "explanation"]
                                 }},
                                 "C1": {"type": "array", "items": {
                                     "type": "object",
                                     "properties": {
                                         "sentence": {"type": "string"},
                                         "grammarPoint": {"type": "string"},
-                                        "explanation": {"type": "string"}
-                                    }
+                                        "explanation": {"type": "string"},
+                                        "highlightedPart": {"type": "string"},
+                                        "structurePattern": {"type": "string"}
+                                    },
+                                    "required": ["sentence", "grammarPoint", "explanation"]
                                 }},
                                 "C2": {"type": "array", "items": {
                                     "type": "object",
                                     "properties": {
                                         "sentence": {"type": "string"},
                                         "grammarPoint": {"type": "string"},
-                                        "explanation": {"type": "string"}
-                                    }
+                                        "explanation": {"type": "string"},
+                                        "highlightedPart": {"type": "string"},
+                                        "structurePattern": {"type": "string"}
+                                    },
+                                    "required": ["sentence", "grammarPoint", "explanation"]
                                 }},
                             }
                         }
