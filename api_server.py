@@ -412,7 +412,7 @@ For vocabulary:
 For grammar:
 - For each CEFR level (A1–C2), find important grammar points.
 - For each grammar point, return:
-  - An example sentence from the text.
+  - A full example sentence from the text (do not cut it to a short phrase; include the whole sentence where the grammar appears).
   - The grammar point name.
   - A very simple explanation in A1–B1 English, using this structure exactly:
     - "In easy words: ..." (1 short sentence, very simple words)
